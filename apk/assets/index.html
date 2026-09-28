@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>系统信息</title>
+<style>
+  /* 暖色浅底为主，跟随系统深色时切到暖炭色（避免冷蓝紫） */
+  :root{
+    --bg:#FBEFD9; --card:#FFFDF6; --line:#EADFC8;
+    --text:#4A3B2A; --dim:#9A8A72; --accent:#C96A1E;
+    --mono:ui-monospace,'Roboto Mono',Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#2B2620; --card:#37312A; --line:#4A4238; --text:#EDE4D6; --dim:#A79A86; --accent:#E8A44F; }
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);
+       font-family:system-ui,-apple-system,'Noto Sans SC',sans-serif;
+       padding:14px 14px 40px;-webkit-tap-highlight-color:transparent}
+  header{display:flex;align-items:baseline;gap:10px;padding:6px 4px 14px}
+  header h1{font-size:20px;font-weight:700}
+  header .ver{font-family:var(--mono);font-size:12px;color:var(--dim)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;
+        padding:4px 16px;margin-bottom:14px;overflow:hidden}
+  .card h2{font-size:13px;color:var(--accent);font-weight:600;letter-spacing:.08em;
+           padding:12px 0 6px}
+  .row{display:flex;justify-content:space-between;gap:14px;
+       padding:9px 0;border-bottom:1px dashed var(--line);font-size:14px}
+  .row:last-child{border-bottom:none}
+  .row .k{color:var(--dim);flex:none}
+  .row .v{font-family:var(--mono);text-align:right;word-break:break-all}
+  .loading{padding:10px 0;color:var(--dim);font-size:13px}
+</style>
+</head>
+<body>
+<header><h1>系统信息</h1><span class="ver" id="appver"></span></header>
+<div id="cards"></div>
+<script>
+'use strict';
+
+/* ============ 通用渲染层 ============ */
+
+/** 组定义表：每组一个标题 + 一个取数函数（返回 [ [键,值], ... ] 或 null）。
+ *  后续版本往 GROUPS 里追加组即可，渲染逻辑不用动。 */
+const GROUPS = [
+  { title: '设备', fetch: fetchDevice },
+];
+
+const cards = document.getElementById('cards');
+
+/** 渲染一个组为一张卡片 */
+function renderGroup(title, rows) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  const h = document.createElement('h2');
+  h.textContent = title;
+  card.appendChild(h);
+  if (rows) {
+    for (const [k, v] of rows) {
+      const r = document.createElement('div');
+      r.className = 'row';
+      const ke = document.createElement('span');
+      ke.className = 'k'; ke.textContent = k;
+      const ve = document.createElement('span');
+      ve.className = 'v';
+      if (v === null || v === undefined || v === '') { ve.textContent = '不可用'; ve.className += ' na'; }
+      else { ve.textContent = v; }
+      r.appendChild(ke); r.appendChild(ve);
+      card.appendChild(r);
+    }
+  } else {
+    const l = document.createElement('div');
+    l.className = 'loading'; l.textContent = '读取失败';
+    card.appendChild(l);
+  }
+  cards.appendChild(card);
+}
+
+/** 安全解析桥返回的 JSON */
+function parseBridge(json) {
+  try { return JSON.parse(json); } catch (e) { return null; }
+}
+
+/** 桥缺失时的兜底（例如页面被外部浏览器打开） */
+function noBridge() {
+  return !window.NativeInfo;
+}
+
+/* ============ 数据组 ============ */
+
+function fetchDevice() {
+  if (noBridge()) return null;
+  const d = parseBridge(NativeInfo.getDeviceInfo());
+  if (!d) return null;
+  return [
+    ['品牌', d.brand],
+    ['厂商', d.manufacturer],
+    ['型号', d.model],
+    ['设备昵称', d.deviceName],
+    ['内部代号', d.device],
+    ['产品代码', d.product],
+    ['主板平台', d.board],
+  ];
+}
+
+/* ============ 启动 ============ */
+
+(function main() {
+  if (noBridge()) {
+    renderGroup('提示', [['说明', '原生桥不可用，请在应用内打开本页面']]);
+    return;
+  }
+  document.getElementById('appver').textContent = 'v' + NativeInfo.getAppVersion();
+  for (const g of GROUPS) {
+    renderGroup(g.title, g.fetch());
+  }
+})();
+</script>
+</body>
+</html>

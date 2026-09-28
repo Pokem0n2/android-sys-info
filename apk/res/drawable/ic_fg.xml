@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 矢量前景：信息圆环 + i 符号（适配任意密度，取材于 24dp 网格） -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- 外环（evenodd 挖空成圆环） -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,2 a10,10 0 1,0 0.001,0 z M12,4 a8,8 0 1,1 -0.001,0 z"
+        android:fillType="evenOdd"/>
+    <!-- i 的点 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,6.2 a1.5,1.5 0 1,0 0.001,0 z"/>
+    <!-- i 的竖杠 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M10.7,9.5 h2.6 v8.3 h-2.6 z"/>
+</vector>

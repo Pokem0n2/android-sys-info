@@ -52,6 +52,8 @@ const GROUPS = [
   { title: '系统', fetch: fetchSystem },
   { title: '处理器', fetch: fetchCpu },
   { title: '图形', fetch: fetchGpu },
+  { title: '电池', fetch: fetchBattery },
+  { title: '其他', fetch: fetchMisc },
 ];
 
 /** 字节数 → 人类可读（GB 用 10^9 近似、保留 1 位小数即可对上标称值） */
@@ -234,6 +236,44 @@ function fetchGpu() {
     ['渲染器', g.renderer],
     ['图形 API', g.version],
   ];
+}
+
+function fetchBattery() {
+  if (noBridge()) return null;
+  const b = parseBridge(NativeInfo.getBatteryInfo());
+  if (!b) return null;
+  const rows = [
+    ['电量', b.level !== undefined ? b.level + '%' : null],
+    ['状态', b.status],
+    ['健康', b.health],
+    ['技术', b.technology],
+  ];
+  if (b.voltage) rows.push(['电压', (b.voltage / 1000).toFixed(2) + ' V']);
+  if (b.temperature) rows.push(['温度', (b.temperature / 10).toFixed(1) + ' °C']);
+  if (b.designCapacity) rows.push(['设计容量', (b.designCapacity / 1000).toFixed(0) + ' mAh']);
+  if (b.fullCapacity) {
+    const soh = b.designCapacity
+      ? '（健康度 ' + (b.fullCapacity / b.designCapacity * 100).toFixed(1) + '%）' : '';
+    rows.push(['满充容量', (b.fullCapacity / 1000).toFixed(0) + ' mAh' + soh]);
+  }
+  return rows;
+}
+
+function fetchMisc() {
+  if (noBridge()) return null;
+  const m = parseBridge(NativeInfo.getMiscInfo());
+  if (!m) return null;
+  const rows = [
+    ['传感器数量', m.sensorCount],
+  ];
+  if (m.accel) rows.push(['加速度计', m.accel]);
+  if (m.gyro) rows.push(['陀螺仪', m.gyro]);
+  if (m.mag) rows.push(['磁力计', m.mag]);
+  if (m.light) rows.push(['光线感应', m.light]);
+  rows.push(['WebView', m.webview]);
+  rows.push(['语言', m.locale]);
+  rows.push(['时区', m.timezone]);
+  return rows;
 }
 
 /* ============ 启动 ============ */

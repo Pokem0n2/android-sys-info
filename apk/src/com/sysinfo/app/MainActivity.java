@@ -3,6 +3,12 @@ package com.sysinfo.app;
 import android.app.Activity;
 import android.app.ActivityManager;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.pm.PackageInfo;
+import android.hardware.Sensor;
+import android.hardware.SensorManager;
+import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.StatFs;
@@ -333,6 +339,151 @@ public class MainActivity extends Activity {
                 sb.append(list.get(i));
             }
             return sb.toString();
+        }
+
+        /** 电池：电量 / 状态 / 健康 / 技术 / 电压 / 温度 / 设计容量（BATTERY_CHANGED 粘性广播）。 */
+        @JavascriptInterface
+        public String getBatteryInfo() {
+            JSONObject o = new JSONObject();
+            try {
+                IntentFilter f = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
+                Intent i = activity.registerReceiver(null, f); // null receiver = 只读 sticky，不注册
+                if (i != null) {
+                    int level = i.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+                    int scale = i.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
+                    if (level >= 0 && scale > 0) {
+                        o.put("level", level * 100 / scale);
+                    }
+                    o.put("status", batteryStatusText(
+                            i.getIntExtra(BatteryManager.EXTRA_STATUS, -1)));
+                    o.put("health", batteryHealthText(
+                            i.getIntExtra(BatteryManager.EXTRA_HEALTH, -1)));
+                    String tech = i.getStringExtra(BatteryManager.EXTRA_TECHNOLOGY);
+                    if (tech != null) o.put("technology", tech);
+                    int volt = i.getIntExtra(BatteryManager.EXTRA_VOLTAGE, -1);
+                    if (volt > 0) o.put("voltage", volt);            // mV
+                    int temp = i.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1);
+                    if (temp > 0) o.put("temperature", temp);        // 0.1°C
+                    // 剩余容量（µAh，API 21+）；由此与设计容量可算健康度
+                    BatteryManager bm = (BatteryManager) activity
+                            .getSystemService(Context.BATTERY_SERVICE);
+                    long charge = bm.getLongProperty(
+                            BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER);
+                    if (charge > 0) o.put("chargeCounter", charge);
+                }
+                // 设计/满充容量：优先 API 34 广播 extra（Intent.EXTRA_ 循环计数），读不到走 sysfs
+                long design = i != null ? i.getLongExtra("design_capacity", -1) : -1;
+                if (design <= 0) design = readSysfsLong("/sys/class/power_supply/battery/charge_full_design");
+                if (design > 0) o.put("designCapacity", design);     // µAh
+                long full = readBatteryExtra(i, "charge_full");
+                if (full <= 0) full = readSysfsLong("/sys/class/power_supply/battery/charge_full");
+                if (full > 0) o.put("fullCapacity", full);           // µAh
+            } catch (Exception ignored) {
+            }
+            return o.toString();
+        }
+
+        private static long readBatteryExtra(Intent i, String extra) {
+            if (i == null) return -1;
+            try {
+                return i.getLongExtra(extra, -1);
+            } catch (Exception ignored) {
+            }
+            return -1;
+        }
+
+        private static long readSysfsLong(String path) {
+            String s = readOneLine(new File(path));
+            if (s == null) return -1;
+            try {
+                return Long.parseLong(s.trim());
+            } catch (NumberFormatException e) {
+                return -1;
+            }
+        }
+
+        private static String batteryStatusText(int status) {
+            switch (status) {
+                case BatteryManager.BATTERY_STATUS_CHARGING:     return "充电中";
+                case BatteryManager.BATTERY_STATUS_DISCHARGING:  return "放电中";
+                case BatteryManager.BATTERY_STATUS_FULL:         return "已充满";
+                case BatteryManager.BATTERY_STATUS_NOT_CHARGING: return "未充电";
+                default: return null;
+            }
+        }
+
+        private static String batteryHealthText(int health) {
+            switch (health) {
+                case BatteryManager.BATTERY_HEALTH_GOOD:         return "良好";
+                case BatteryManager.BATTERY_HEALTH_OVERHEAT:     return "过热";
+                case BatteryManager.BATTERY_HEALTH_DEAD:         return "已报废";
+                case BatteryManager.BATTERY_HEALTH_OVER_VOLTAGE: return "过压";
+                case BatteryManager.BATTERY_HEALTH_COLD:         return "过冷";
+                default: return null;
+            }
+        }
+
+        /** 其他：传感器数量 / WebView 版本 / 语言时区。 */
+        @JavascriptInterface
+        public String getMiscInfo() {
+            JSONObject o = new JSONObject();
+            try {
+                SensorManager sm = (SensorManager) activity
+                        .getSystemService(Context.SENSOR_SERVICE);
+                java.util.List<Sensor> sensors = sm.getSensorList(Sensor.TYPE_ALL);
+                o.put("sensorCount", sensors.size());
+                // 首选各类型的代表传感器（有则显示名）
+                addSensor(o, "accel", Sensor.TYPE_ACCELEROMETER, sensors, sm);
+                addSensor(o, "gyro", Sensor.TYPE_GYROSCOPE, sensors, sm);
+                addSensor(o, "mag", Sensor.TYPE_MAGNETIC_FIELD, sensors, sm);
+                addSensor(o, "light", Sensor.TYPE_LIGHT, sensors, sm);
+
+                // WebView 版本：当前提供者（系统 WebView / Chrome / 三星 Internet…）
+                if (Build.VERSION.SDK_INT >= 26) {
+                    PackageInfo pkg = android.webkit.WebView.getCurrentWebViewPackage();
+                    if (pkg != null) {
+                        o.put("webview", pkg.packageName + " " + pkg.versionName);
+                    }
+                } else {
+                    String v = findWebViewVersionPre26();
+                    if (v != null) o.put("webview", v);
+                }
+                o.put("locale", java.util.Locale.getDefault().toString());
+                o.put("timezone", java.util.TimeZone.getDefault().getID());
+            } catch (Exception ignored) {
+            }
+            return o.toString();
+        }
+
+        private void addSensor(JSONObject o, String key, int type,
+                               java.util.List<Sensor> all, SensorManager sm) {
+            try {
+                for (Sensor s : all) {
+                    if (s.getType() == type) {
+                        o.put(key, s.getName());
+                        return;
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+        }
+
+        /** API 21-25：从已知 WebView 提供包里翻版本号。 */
+        private String findWebViewVersionPre26() {
+            String[] pkgs = {
+                    "com.google.android.webview",
+                    "com.android.webview",
+                    "com.android.chrome",
+                    "com.sec.android.app.sbrowser",
+            };
+            for (String p : pkgs) {
+                try {
+                    return p + " " + activity.getPackageManager()
+                            .getPackageInfo(p, 0).versionName;
+                } catch (Exception ignored) {
+                }
+            }
+            return null;
         }
 
         /** 闪存类型探测：优先 UFS（sysfs ufshc 目录），退回 eMMC（mmcblk，含厂商解码）。 */

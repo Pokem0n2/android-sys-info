@@ -232,12 +232,10 @@ function fetchDevice() {
   const d = parseBridge(NativeInfo.getDeviceInfo());
   if (!d) return null;
   return [
-    ['品牌', d.brand],
     ['厂商', d.manufacturer],
     ['型号', d.model],
     ['设备昵称', d.deviceName],
     ['内部代号', d.device],
-    ['产品代码', d.product],
     ['主板平台', d.board],
   ];
 }
@@ -251,7 +249,6 @@ function fetchMemory() {
     ['内存总量', fmtBytes(m.total)],
     ['当前可用', fmtBytes(m.avail) + ' (' + pct + '%)'],
     ['低内存阈值', fmtBytes(m.threshold)],
-    ['内存吃紧', m.low ? '是' : '否'],
   ];
 }
 

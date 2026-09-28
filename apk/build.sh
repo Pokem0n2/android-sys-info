@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build android-sys-info-v{version}.apk
+# 构建产物：asi-z-v{version}.apk（asi = android-sys-info 缩写）
 # Requires: ANDROID_HOME set, build-tools 34.0.0, platforms;android-34
 # On aarch64 (e.g. DGX Spark), uses box64 for x86_64 aapt2/zipalign/aapt
 # and calls d8/apksigner through their JARs (the bash wrappers confuse box64)
@@ -32,7 +32,7 @@ VC_PATCH="${VC_PATCH:-0}"
 VC_MINOR="${VC_MINOR:-0}"
 VC_MAJOR="${VC_MAJOR:-0}"
 VERSION_CODE=$(( VC_MAJOR * 10000 + VC_MINOR * 100 + VC_PATCH ))
-APK_NAME="android-sys-info-v${VERSION}"
+APK_NAME="asi-z-v${VERSION}"
 echo "Building: $APK_NAME.apk (versionCode=$VERSION_CODE, versionName=$VERSION)"
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR/obj" "$BUILD_DIR/dex" "$BUILD_DIR/compiled"

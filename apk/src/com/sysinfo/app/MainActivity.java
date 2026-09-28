@@ -1,6 +1,7 @@
 package com.sysinfo.app;
 
 import android.app.Activity;
+import android.app.ActivityManager;
 import android.content.Context;
 import android.os.Build;
 import android.os.Bundle;
@@ -10,6 +11,10 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 
 import org.json.JSONObject;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileReader;
 
 /**
  * 系统信息 —— 离线硬件信息查看器。
@@ -86,6 +91,133 @@ public class MainActivity extends Activity {
             } catch (Exception ignored) {
             }
             return o.toString();
+        }
+
+        /** 内存：总量 / 当前可用 / 阈值 / 低内存标志（ActivityManager.MemoryInfo）。 */
+        @JavascriptInterface
+        public String getMemoryInfo() {
+            JSONObject o = new JSONObject();
+            try {
+                ActivityManager.MemoryInfo mi = new ActivityManager.MemoryInfo();
+                ActivityManager am = (ActivityManager) activity
+                        .getSystemService(Context.ACTIVITY_SERVICE);
+                am.getMemoryInfo(mi);
+                o.put("total", mi.totalMem);       // 物理内存总量（字节）
+                o.put("avail", mi.availMem);       // 当前可用（字节）
+                o.put("threshold", mi.threshold);  // 系统判定「内存吃紧」的阈值
+                o.put("low", mi.lowMemory);        // 当前是否已吃紧
+            } catch (Exception ignored) {
+            }
+            return o.toString();
+        }
+
+        /** 闪存类型探测：优先 UFS（sysfs ufshc 目录），退回 eMMC（mmcblk，含厂商解码）。 */
+        @JavascriptInterface
+        public String getStorageInfo() {
+            JSONObject o = new JSONObject();
+            try {
+                detectUfs(o);
+                if (o.length() == 0) {
+                    detectEmmc(o);
+                }
+            } catch (Exception ignored) {
+            }
+            return o.toString();
+        }
+
+        /** UFS：内核把主控信息放在 /sys/class/ufshc/ 下（每控制器一目录），
+         *  路径随版本有差异，逐个候选目录探测；目录名以 ufshc 开头即认定。
+         *  读不到细项也至少给出类型。 */
+        private void detectUfs(JSONObject o) throws Exception {
+            File[] candidates = {
+                    new File("/sys/class/ufshc"),
+                    new File("/sys/class/misc"),
+                    new File("/sys/devices/platform"),
+            };
+            for (File root : candidates) {
+                File[] children = root.listFiles();
+                if (children == null) continue;
+                for (File child : children) {
+                    if (!child.isDirectory()) continue;
+                    if (!child.getName().startsWith("ufshc")) continue;
+                    o.put("type", "UFS");
+                    // 标准厂商/产品名（若内核暴露）
+                    String std = readOneLine(new File(child, "device_descriptor"));
+                    // 厂商自定义字符串（若内核暴露）
+                    String sub = readOneLine(new File(child, "strings_subtype"));
+                    if (std != null && !std.isEmpty()) o.put("desc", std);
+                    if (sub != null && !sub.isEmpty()) o.put("sub", sub);
+                    return;
+                }
+            }
+        }
+
+        /** eMMC：/sys/block/mmcblk0 的 device 子目录下有 cid / name。 */
+        private void detectEmmc(JSONObject o) throws Exception {
+            File[] roots = {new File("/sys/block"), new File("/sys/class/block")};
+            for (File root : roots) {
+                File[] children = root.listFiles();
+                if (children == null) continue;
+                for (File child : children) {
+                    if (!child.getName().startsWith("mmcblk")) continue;
+                    File dev = new File(child, "device");
+                    String cid = readOneLine(new File(dev, "cid"));
+                    if (cid == null) continue;
+                    o.put("type", "eMMC");
+                    // cid 首字节为厂商 ID；表来自 mmc-utils lsmmc.c 的 mmc_database
+                    String man = emmcManufacturer(cid);
+                    if (man != null) o.put("manufacturer", man);
+                    String pname = readOneLine(new File(dev, "name"));
+                    if (pname != null && !pname.isEmpty()) o.put("product", pname);
+                    String manid = readOneLine(new File(dev, "manid"));
+                    if (manid != null && !manid.isEmpty()) o.put("manid", "0x" + manid);
+                    return;
+                }
+            }
+        }
+
+        /** eMMC CID 首字节 → 厂商名。表来源：mmc-utils lsmmc.c（JEDEC JEP106 派生）。 */
+        private static String emmcManufacturer(String cidHex) {
+            if (cidHex == null) return null;
+            String h = cidHex.trim();
+            if (h.length() < 2) return null;
+            final int id;
+            try {
+                id = Integer.parseInt(h.substring(0, 2), 16);
+            } catch (NumberFormatException e) {
+                return null;
+            }
+            switch (id) {
+                case 0x00: return "SanDisk";
+                case 0x02: return "Kingston/SanDisk";
+                case 0x03: return "Toshiba";
+                case 0x11: return "Toshiba";
+                case 0x13: return "Micron";
+                case 0x15: return "Samsung/SanDisk/LG";
+                case 0x2c: return "Kingston";
+                case 0x37: return "KingMax";
+                case 0x44: return "ATP";
+                case 0x45: return "SanDisk Corporation";
+                case 0x70: return "Kingston";
+                case 0xfe: return "Micron";
+                default:   return null;  // 未知 ID：不猜，JS 侧显示原始 manid
+            }
+        }
+
+        /** 读 sysfs 单行文件，失败返回 null（不抛异常）。 */
+        private static String readOneLine(File f) {
+            BufferedReader br = null;
+            try {
+                br = new BufferedReader(new FileReader(f));
+                String line = br.readLine();
+                if (line != null) line = line.trim();
+                if (line != null && line.isEmpty()) line = null;
+                return line;
+            } catch (Exception e) {
+                return null;
+            } finally {
+                if (br != null) try { br.close(); } catch (Exception ignored) {}
+            }
         }
     }
 }

@@ -45,7 +45,16 @@
  *  后续版本往 GROUPS 里追加组即可，渲染逻辑不用动。 */
 const GROUPS = [
   { title: '设备', fetch: fetchDevice },
+  { title: '内存', fetch: fetchMemory },
+  { title: '闪存', fetch: fetchFlash },
 ];
+
+/** 字节数 → 人类可读（GB 用 10^9 近似、保留 1 位小数即可对上标称值） */
+function fmtBytes(n) {
+  if (n === null || n === undefined || isNaN(n)) return null;
+  const gb = n / 1e9;
+  return gb.toFixed(1) + ' GB (' + n.toLocaleString() + ' B)';
+}
 
 const cards = document.getElementById('cards');
 
@@ -102,6 +111,35 @@ function fetchDevice() {
     ['产品代码', d.product],
     ['主板平台', d.board],
   ];
+}
+
+function fetchMemory() {
+  if (noBridge()) return null;
+  const m = parseBridge(NativeInfo.getMemoryInfo());
+  if (!m) return null;
+  const pct = (m.avail / m.total * 100).toFixed(1);
+  return [
+    ['内存总量', fmtBytes(m.total)],
+    ['当前可用', fmtBytes(m.avail) + ' (' + pct + '%)'],
+    ['低内存阈值', fmtBytes(m.threshold)],
+    ['内存吃紧', m.low ? '是' : '否'],
+  ];
+}
+
+function fetchFlash() {
+  if (noBridge()) return null;
+  const s = parseBridge(NativeInfo.getStorageInfo());
+  if (!s) return null;
+  const rows = [['闪存类型', s.type || null]];
+  if (s.type === 'UFS') {
+    if (s.desc) rows.push(['描述符', s.desc]);
+    if (s.sub) rows.push(['厂商字符串', s.sub]);
+  } else if (s.type === 'eMMC') {
+    if (s.manufacturer) rows.push(['颗粒厂商', s.manufacturer]);
+    if (s.manid) rows.push(['厂商 ID', s.manid]);
+    if (s.product) rows.push(['产品名', s.product]);
+  }
+  return rows;
 }
 
 /* ============ 启动 ============ */

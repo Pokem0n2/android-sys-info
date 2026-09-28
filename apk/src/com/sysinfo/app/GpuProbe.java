@@ -1,6 +1,6 @@
 package com.sysinfo.app;
 
-import java.lang.reflect.Method;
+import android.opengl.GLES20;
 
 import javax.microedition.khronos.egl.EGL10;
 import javax.microedition.khronos.egl.EGLConfig;
@@ -60,8 +60,8 @@ final class GpuProbe {
                 return null;
             }
             try {
-                String renderer = glGetString(GL_RENDERER_INT);
-                String versionStr = glGetString(GL_VERSION_INT);
+                String renderer = GLES20.glGetString(GLES20.GL_RENDERER);
+                String versionStr = GLES20.glGetString(GLES20.GL_VERSION);
                 if (renderer == null) return null;
                 return new String[]{ renderer, versionStr };
             } finally {
@@ -72,28 +72,6 @@ final class GpuProbe {
             }
         } finally {
             egl.eglTerminate(display);
-        }
-    }
-
-    // glGetString 常量（GLES2 头文件里的值）
-    private static final int GL_RENDERER_INT = 0x1F01;
-    private static final int GL_VERSION_INT = 0x1F02;
-
-    /** 通过反射调 GLES20.glGetString（避免编译期依赖 android.opengl.GLES20 注入问题，
-     *  同时兼容仅实现 GLES1 的老设备——按类名依次尝试）。 */
-    private static String glGetString(int name) {
-        try {
-            Class<?> gles;
-            try {
-                gles = Class.forName("android.opengl.GLES20");
-            } catch (ClassNotFoundException e) {
-                gles = Class.forName("android.opengl.GLES11");
-            }
-            Method m = gles.getMethod("glGetString", int.class);
-            Object r = m.invoke(null, name);
-            return r instanceof String ? (String) r : null;
-        } catch (Exception e) {
-            return null;
         }
     }
 }

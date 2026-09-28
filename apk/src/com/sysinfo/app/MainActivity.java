@@ -433,10 +433,10 @@ public class MainActivity extends Activity {
                 java.util.List<Sensor> sensors = sm.getSensorList(Sensor.TYPE_ALL);
                 o.put("sensorCount", sensors.size());
                 // 首选各类型的代表传感器（有则显示名）
-                addSensor(o, "accel", Sensor.TYPE_ACCELEROMETER, sensors, sm);
-                addSensor(o, "gyro", Sensor.TYPE_GYROSCOPE, sensors, sm);
-                addSensor(o, "mag", Sensor.TYPE_MAGNETIC_FIELD, sensors, sm);
-                addSensor(o, "light", Sensor.TYPE_LIGHT, sensors, sm);
+                addSensor(o, "accel", Sensor.TYPE_ACCELEROMETER, sensors);
+                addSensor(o, "gyro", Sensor.TYPE_GYROSCOPE, sensors);
+                addSensor(o, "mag", Sensor.TYPE_MAGNETIC_FIELD, sensors);
+                addSensor(o, "light", Sensor.TYPE_LIGHT, sensors);
 
                 // WebView 版本：当前提供者（系统 WebView / Chrome / 三星 Internet…）
                 if (Build.VERSION.SDK_INT >= 26) {
@@ -456,7 +456,7 @@ public class MainActivity extends Activity {
         }
 
         private void addSensor(JSONObject o, String key, int type,
-                               java.util.List<Sensor> all, SensorManager sm) {
+                               java.util.List<Sensor> all) {
             try {
                 for (Sensor s : all) {
                     if (s.getType() == type) {

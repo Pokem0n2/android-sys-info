@@ -50,6 +50,8 @@ const GROUPS = [
   { title: '显示', fetch: fetchDisplay },
   { title: '存储', fetch: fetchStorageStat },
   { title: '系统', fetch: fetchSystem },
+  { title: '处理器', fetch: fetchCpu },
+  { title: '图形', fetch: fetchGpu },
 ];
 
 /** 字节数 → 人类可读（GB 用 10^9 近似、保留 1 位小数即可对上标称值） */
@@ -197,6 +199,40 @@ function fetchSystem() {
     ['构建标签', s.tags],
     ['构建时间', s.buildTime ? new Date(s.buildTime).toLocaleString() : null],
     ['已开机', fmtUptime(s.bootUptime)],
+  ];
+}
+
+/** kHz → GHz（CPU 集群频率） */
+function fmtKHz(k) {
+  if (k === null || k === undefined || k < 0 || isNaN(k)) return null;
+  return (k / 1e6).toFixed(2) + ' GHz';
+}
+
+function fetchCpu() {
+  if (noBridge()) return null;
+  const c = parseBridge(NativeInfo.getCpuInfo());
+  if (!c) return null;
+  const rows = [
+    ['架构', c.arch],
+    ['核心数', c.cores],
+    ['ABI', c.abis],
+  ];
+  if (Array.isArray(c.clusters)) {
+    for (const cl of c.clusters) {
+      const label = 'CPU' + cl.cpus + (cl.core ? ' · ' + cl.core : '');
+      rows.push([label, fmtKHz(cl.maxFreq)]);
+    }
+  }
+  return rows;
+}
+
+function fetchGpu() {
+  if (noBridge()) return null;
+  const g = parseBridge(NativeInfo.getGpuInfo());
+  if (!g) return null;
+  return [
+    ['渲染器', g.renderer],
+    ['图形 API', g.version],
   ];
 }
 

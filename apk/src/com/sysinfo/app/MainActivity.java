@@ -15,6 +15,7 @@ import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
@@ -183,6 +184,155 @@ public class MainActivity extends Activity {
             } catch (Exception ignored) {
             }
             return o.toString();
+        }
+
+        /** CPU：架构 / ABI 列表 / 核心数 / 各集群（按最高频率分桶 + MIDR 解码）。 */
+        @JavascriptInterface
+        public String getCpuInfo() {
+            JSONObject o = new JSONObject();
+            try {
+                o.put("abis", joinStrings(Build.SUPPORTED_ABIS));
+                // 首选 ABI 即当前运行架构（arm64-v8a / armeabi-v7a / x86_64）
+                String arch = Build.SUPPORTED_ABIS.length > 0
+                        ? Build.SUPPORTED_ABIS[0] : "";
+                o.put("arch", arch);
+                o.put("cores", Runtime.getRuntime().availableProcessors());
+                o.put("clusters", readCpuClusters());
+            } catch (Exception ignored) {
+            }
+            return o.toString();
+        }
+
+        /** 读 /sys/devices/system/cpu/，按「cpuinfo_max_freq」分桶聚合集群，
+         *  并读取每个集群首个核心的 MIDR（regs/id/midr_el1）解码出核心型号。 */
+        private static JSONArray readCpuClusters() {
+            JSONArray arr = new JSONArray();
+            java.util.LinkedHashMap<Long, java.util.ArrayList<Integer>> buckets =
+                    new java.util.LinkedHashMap<>();
+            for (int i = 0; i < 64; i++) {
+                File cpuDir = new File("/sys/devices/system/cpu/cpu" + i);
+                if (!cpuDir.isDirectory()) break;
+                String max = readOneLine(new File(cpuDir, "cpufreq/cpuinfo_max_freq"));
+                long m = -1;
+                if (max != null) {
+                    try { m = Long.parseLong(max); } catch (NumberFormatException ignored) {}
+                }
+                java.util.ArrayList<Integer> list = buckets.get(m);
+                if (list == null) {
+                    list = new java.util.ArrayList<>();
+                    buckets.put(m, list);
+                }
+                list.add(i);
+            }
+            for (java.util.Map.Entry<Long, java.util.ArrayList<Integer>> e : buckets.entrySet()) {
+                JSONObject c = new JSONObject();
+                try {
+                    c.put("cpus", joinInts(e.getValue()));
+                    c.put("maxFreq", e.getKey());   // kHz
+                    int first = e.getValue().get(0);
+                    // ARM64 内核暴露每核 MIDR（含 implementer/part）；32 位无此文件
+                    String midr = readOneLine(new File(
+                            "/sys/devices/system/cpu/cpu" + first + "/regs/id/midr_el1"));
+                    if (midr != null) {
+                        c.put("midr", midr);
+                        String core = decodeMidr(midr);
+                        if (core != null) c.put("core", core);
+                    }
+                } catch (Exception ignored) {
+                }
+                arr.put(c);
+            }
+            return arr;
+        }
+
+        /** MIDR_EL1 → 人类可读核心型号。字段布局见 ARM ARM (DDI 0487) MIDR 描述。 */
+        private static String decodeMidr(String midrHex) {
+            try {
+                long v = Long.parseUnsignedLong(midrHex.trim().replaceFirst("^0[xX]", ""), 16);
+                int implementer = (int) ((v >> 24) & 0xff);
+                int part = (int) ((v >> 4) & 0xfff);
+                String vendor;
+                switch (implementer) {
+                    case 0x41: vendor = "ARM"; break;
+                    case 0x51: vendor = "Qualcomm"; break;
+                    case 0x53: vendor = "Samsung"; break;
+                    case 0x48: vendor = "HiSilicon"; break;
+                    case 0x4e: vendor = "NVIDIA"; break;
+                    case 0x69: vendor = "Intel"; break;
+                    default:   vendor = String.format("impl 0x%02x", implementer); break;
+                }
+                String core = armCoreName(part);
+                return core != null ? vendor + " " + core
+                        : String.format("%s part 0x%03x", vendor, part);
+            } catch (Exception e) {
+                return null;
+            }
+        }
+
+        /** ARM 公版核心 part number（见各核心 TRM）；非公版（骁龙 X 系自研等）返回 null。 */
+        private static String armCoreName(int part) {
+            switch (part) {
+                case 0xd01: return "Cortex-A32";
+                case 0xd03: return "Cortex-A53";
+                case 0xd04: return "Cortex-A35";
+                case 0xd05: return "Cortex-A55";
+                case 0xd07: return "Cortex-A57";
+                case 0xd08: return "Cortex-A72";
+                case 0xd09: return "Cortex-A73";
+                case 0xd0a: return "Cortex-A75";
+                case 0xd0b: return "Cortex-A76";
+                case 0xd0c: return "Neoverse-N1";
+                case 0xd0d: return "Cortex-A77";
+                case 0xd0e: return "Cortex-A76AE";
+                case 0xd40: return "Neoverse-V1";
+                case 0xd41: return "Cortex-A78";
+                case 0xd44: return "Cortex-X1";
+                case 0xd46: return "Cortex-A510";
+                case 0xd47: return "Cortex-A710";
+                case 0xd48: return "Cortex-X2";
+                case 0xd49: return "Neoverse-N2";
+                case 0xd4d: return "Cortex-A715";
+                case 0xd4e: return "Cortex-X3";
+                case 0xd80: return "Cortex-A520";
+                case 0xd81: return "Cortex-A720";
+                case 0xd82: return "Cortex-X4";
+                case 0xd87: return "Cortex-A725";
+                case 0xd88: return "Cortex-X925";
+                default: return null;
+            }
+        }
+
+        /** GPU 信息：离屏 EGL surface 上调 glGetString 读渲染器与版本（见 GpuProbe）。 */
+        @JavascriptInterface
+        public String getGpuInfo() {
+            JSONObject o = new JSONObject();
+            try {
+                String[] gl = GpuProbe.query();
+                if (gl != null) {
+                    o.put("renderer", gl[0]);
+                    o.put("version", gl[1]);
+                }
+            } catch (Exception ignored) {
+            }
+            return o.toString();
+        }
+
+        private static String joinStrings(String[] arr) {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < arr.length; i++) {
+                if (i > 0) sb.append(" / ");
+                sb.append(arr[i]);
+            }
+            return sb.toString();
+        }
+
+        private static String joinInts(java.util.ArrayList<Integer> list) {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < list.size(); i++) {
+                if (i > 0) sb.append(',');
+                sb.append(list.get(i));
+            }
+            return sb.toString();
         }
 
         /** 闪存类型探测：优先 UFS（sysfs ufshc 目录），退回 eMMC（mmcblk，含厂商解码）。 */

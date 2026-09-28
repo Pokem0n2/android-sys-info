@@ -8,34 +8,54 @@
   /* 暖色浅底为主，跟随系统深色时切到暖炭色（避免冷蓝紫） */
   :root{
     --bg:#FBEFD9; --card:#FFFDF6; --line:#EADFC8;
-    --text:#4A3B2A; --dim:#9A8A72; --accent:#C96A1E;
+    --text:#4A3B2A; --dim:#9A8A72; --accent:#C96A1E; --accent-soft:#F5E3C8;
     --mono:ui-monospace,'Roboto Mono',Menlo,Consolas,monospace;
   }
   @media (prefers-color-scheme: dark){
-    :root{ --bg:#2B2620; --card:#37312A; --line:#4A4238; --text:#EDE4D6; --dim:#A79A86; --accent:#E8A44F; }
+    :root{ --bg:#2B2620; --card:#37312A; --line:#4A4238; --text:#EDE4D6; --dim:#A79A86; --accent:#E8A44F; --accent-soft:#4A3E2E; }
   }
   *{box-sizing:border-box;margin:0;padding:0}
   body{background:var(--bg);color:var(--text);
        font-family:system-ui,-apple-system,'Noto Sans SC',sans-serif;
-       padding:14px 14px 40px;-webkit-tap-highlight-color:transparent}
-  header{display:flex;align-items:baseline;gap:10px;padding:6px 4px 14px}
-  header h1{font-size:20px;font-weight:700}
+       padding:12px 14px 40px;-webkit-tap-highlight-color:transparent}
+  header{display:flex;align-items:center;gap:10px;padding:4px 2px 12px}
+  header h1{font-size:20px;font-weight:700;flex:1}
   header .ver{font-family:var(--mono);font-size:12px;color:var(--dim)}
+  .btn{background:var(--accent);color:#fff;border:none;border-radius:10px;
+       padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer}
+  .btn:active{opacity:.8}
+  .toast{position:fixed;left:50%;bottom:36px;transform:translateX(-50%) translateY(20px);
+         background:rgba(0,0,0,.75);color:#fff;font-size:13px;border-radius:8px;
+         padding:8px 16px;opacity:0;pointer-events:none;transition:all .25s}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
   .card{background:var(--card);border:1px solid var(--line);border-radius:12px;
-        padding:4px 16px;margin-bottom:14px;overflow:hidden}
-  .card h2{font-size:13px;color:var(--accent);font-weight:600;letter-spacing:.08em;
-           padding:12px 0 6px}
+        margin-bottom:12px;overflow:hidden}
+  .card .head{display:flex;align-items:center;padding:0 16px;height:44px;cursor:pointer;
+              user-select:none}
+  .card .head h2{font-size:13px;color:var(--accent);font-weight:600;
+                 letter-spacing:.08em;flex:1}
+  .card .head .arrow{color:var(--dim);font-size:11px;transition:transform .2s}
+  .card.closed .arrow{transform:rotate(-90deg)}
+  .card .body{padding:0 16px 10px;border-top:1px dashed var(--line)}
+  .card.closed .body{display:none}
   .row{display:flex;justify-content:space-between;gap:14px;
        padding:9px 0;border-bottom:1px dashed var(--line);font-size:14px}
   .row:last-child{border-bottom:none}
   .row .k{color:var(--dim);flex:none}
   .row .v{font-family:var(--mono);text-align:right;word-break:break-all}
+  .v.na{color:var(--dim);opacity:.6}
+  .copied{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
   .loading{padding:10px 0;color:var(--dim);font-size:13px}
 </style>
 </head>
 <body>
-<header><h1>系统信息</h1><span class="ver" id="appver"></span></header>
+<header>
+  <h1>系统信息</h1>
+  <span class="ver" id="appver"></span>
+  <button class="btn" id="copyAll">复制全部</button>
+</header>
 <div id="cards"></div>
+<div class="toast" id="toast">已复制</div>
 <script>
 'use strict';
 
@@ -56,22 +76,31 @@ const GROUPS = [
   { title: '其他', fetch: fetchMisc },
 ];
 
-/** 字节数 → 人类可读（GB 用 10^9 近似、保留 1 位小数即可对上标称值） */
-function fmtBytes(n) {
-  if (n === null || n === undefined || isNaN(n)) return null;
-  const gb = n / 1e9;
-  return gb.toFixed(1) + ' GB (' + n.toLocaleString() + ' B)';
-}
-
 const cards = document.getElementById('cards');
 
-/** 渲染一个组为一张卡片 */
+/** 全部行的原始数据，复制报告时用（[组标题, rows] 数组） */
+let report = [];
+
+/** 渲染一个组为一张卡片（可点击标题折叠） */
 function renderGroup(title, rows) {
+  report.push([title, rows]);
   const card = document.createElement('div');
   card.className = 'card';
+  const head = document.createElement('div');
+  head.className = 'head';
   const h = document.createElement('h2');
   h.textContent = title;
-  card.appendChild(h);
+  head.appendChild(h);
+  const arrow = document.createElement('span');
+  arrow.className = 'arrow';
+  arrow.textContent = '▼';
+  head.appendChild(arrow);
+  const body = document.createElement('div');
+  body.className = 'body';
+  card.appendChild(head);
+  card.appendChild(body);
+  head.addEventListener('click', () => card.classList.toggle('closed'));
+
   if (rows) {
     for (const [k, v] of rows) {
       const r = document.createElement('div');
@@ -80,15 +109,24 @@ function renderGroup(title, rows) {
       ke.className = 'k'; ke.textContent = k;
       const ve = document.createElement('span');
       ve.className = 'v';
-      if (v === null || v === undefined || v === '') { ve.textContent = '不可用'; ve.className += ' na'; }
-      else { ve.textContent = v; }
+      if (v === null || v === undefined || v === '') {
+        ve.textContent = '不可用';
+        ve.className += ' na';
+      } else {
+        ve.textContent = v;
+        // 单值点击即复制该值
+        ve.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          copyText(String(v), ve);
+        });
+      }
       r.appendChild(ke); r.appendChild(ve);
-      card.appendChild(r);
+      body.appendChild(r);
     }
   } else {
     const l = document.createElement('div');
     l.className = 'loading'; l.textContent = '读取失败';
-    card.appendChild(l);
+    body.appendChild(l);
   }
   cards.appendChild(card);
 }
@@ -101,6 +139,90 @@ function parseBridge(json) {
 /** 桥缺失时的兜底（例如页面被外部浏览器打开） */
 function noBridge() {
   return !window.NativeInfo;
+}
+
+/** 复制文本并给出轻量反馈（整页 toast / 单值高亮） */
+function copyText(text, highlightEl) {
+  let ok = false;
+  if (!noBridge() && NativeInfo.copyToClipboard) {
+    ok = !!NativeInfo.copyToClipboard(text);
+  }
+  if (!ok) {
+    // 兜底：老 WebView 无桥复制时用 execCommand
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+    } catch (e) { ok = false; }
+  }
+  if (ok) {
+    if (highlightEl) {
+      highlightEl.classList.add('copied');
+      setTimeout(() => highlightEl.classList.remove('copied'), 600);
+    } else {
+      showToast('已复制到剪贴板');
+    }
+  } else {
+    showToast('复制失败');
+  }
+}
+
+let toastTimer = null;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 1600);
+}
+
+/** 汇总报告为纯文本（组名 + 键值行） */
+function buildReportText() {
+  const lines = [];
+  for (const [title, rows] of report) {
+    lines.push('【' + title + '】');
+    if (rows) {
+      for (const [k, v] of rows) {
+        lines.push(k + '：' + (v === null || v === undefined || v === '' ? '不可用' : v));
+      }
+    } else {
+      lines.push('读取失败');
+    }
+    lines.push('');
+  }
+  return lines.join('\n');
+}
+
+/* ============ 格式化 ============ */
+
+/** 字节数 → 人类可读（GB 用 10^9 近似、保留 1 位小数即可对上标称值） */
+function fmtBytes(n) {
+  if (n === null || n === undefined || isNaN(n)) return null;
+  const gb = n / 1e9;
+  return gb.toFixed(1) + ' GB (' + n.toLocaleString() + ' B)';
+}
+
+/** 毫秒 → X 天 X 小时 X 分（启动时长用） */
+function fmtUptime(ms) {
+  if (ms === null || ms === undefined || isNaN(ms)) return null;
+  const m = Math.floor(ms / 60000);
+  const days = Math.floor(m / 1440);
+  const hours = Math.floor((m % 1440) / 60);
+  const mins = m % 60;
+  let out = '';
+  if (days > 0) out += days + ' 天 ';
+  if (hours > 0 || days > 0) out += hours + ' 小时 ';
+  out += mins + ' 分钟';
+  return out;
+}
+
+/** kHz → GHz（CPU 集群频率） */
+function fmtKHz(k) {
+  if (k === null || k === undefined || k < 0 || isNaN(k)) return null;
+  return (k / 1e6).toFixed(2) + ' GHz';
 }
 
 /* ============ 数据组 ============ */
@@ -174,20 +296,6 @@ function fetchStorageStat() {
   ];
 }
 
-/** 毫秒 → X 天 X 小时 X 分（启动时长用） */
-function fmtUptime(ms) {
-  if (ms === null || ms === undefined || isNaN(ms)) return null;
-  const m = Math.floor(ms / 60000);
-  const days = Math.floor(m / 1440);
-  const hours = Math.floor((m % 1440) / 60);
-  const mins = m % 60;
-  let out = '';
-  if (days > 0) out += days + ' 天 ';
-  if (hours > 0 || days > 0) out += hours + ' 小时 ';
-  out += mins + ' 分钟';
-  return out;
-}
-
 function fetchSystem() {
   if (noBridge()) return null;
   const s = parseBridge(NativeInfo.getSystemInfo());
@@ -202,12 +310,6 @@ function fetchSystem() {
     ['构建时间', s.buildTime ? new Date(s.buildTime).toLocaleString() : null],
     ['已开机', fmtUptime(s.bootUptime)],
   ];
-}
-
-/** kHz → GHz（CPU 集群频率） */
-function fmtKHz(k) {
-  if (k === null || k === undefined || k < 0 || isNaN(k)) return null;
-  return (k / 1e6).toFixed(2) + ' GHz';
 }
 
 function fetchCpu() {
@@ -287,6 +389,9 @@ function fetchMisc() {
   for (const g of GROUPS) {
     renderGroup(g.title, g.fetch());
   }
+  document.getElementById('copyAll').addEventListener('click', () => {
+    copyText(buildReportText(), null);
+  });
 })();
 </script>
 </body>

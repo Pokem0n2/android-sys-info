@@ -486,6 +486,20 @@ public class MainActivity extends Activity {
             return null;
         }
 
+        /** 把整份报告文本写入系统剪贴板（JS 侧无法跨 file:// 源写剪贴板）。 */
+        @JavascriptInterface
+        public boolean copyToClipboard(String text) {
+            try {
+                android.content.ClipboardManager cm = (android.content.ClipboardManager)
+                        activity.getSystemService(Context.CLIPBOARD_SERVICE);
+                cm.setPrimaryClip(android.content.ClipData.newPlainText(
+                        "系统信息报告", text));
+                return true;
+            } catch (Exception e) {
+                return false;
+            }
+        }
+
         /** 闪存类型探测：优先 UFS（sysfs ufshc 目录），退回 eMMC（mmcblk，含厂商解码）。 */
         @JavascriptInterface
         public String getStorageInfo() {

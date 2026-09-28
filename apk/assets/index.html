@@ -47,6 +47,8 @@ const GROUPS = [
   { title: '设备', fetch: fetchDevice },
   { title: '内存', fetch: fetchMemory },
   { title: '闪存', fetch: fetchFlash },
+  { title: '显示', fetch: fetchDisplay },
+  { title: '存储', fetch: fetchStorageStat },
 ];
 
 /** 字节数 → 人类可读（GB 用 10^9 近似、保留 1 位小数即可对上标称值） */
@@ -140,6 +142,31 @@ function fetchFlash() {
     if (s.product) rows.push(['产品名', s.product]);
   }
   return rows;
+}
+
+function fetchDisplay() {
+  if (noBridge()) return null;
+  const d = parseBridge(NativeInfo.getDisplayInfo());
+  if (!d) return null;
+  return [
+    ['分辨率', d.width + ' × ' + d.height + ' px'],
+    ['像素密度', d.densityDpi + ' dpi (×' + d.density + ')'],
+    ['物理密度', 'xdpi ' + d.xdpi.toFixed(1) + ' / ydpi ' + d.ydpi.toFixed(1)],
+    ['屏幕尺寸', d.inches ? d.inches.toFixed(2) + ' 英寸（估算）' : null],
+    ['刷新率', d.refresh ? d.refresh.toFixed(1) + ' Hz' : null],
+  ];
+}
+
+function fetchStorageStat() {
+  if (noBridge()) return null;
+  const s = parseBridge(NativeInfo.getStorageStat());
+  if (!s) return null;
+  const usedPct = (s.used / s.total * 100).toFixed(1);
+  return [
+    ['总容量', fmtBytes(s.total)],
+    ['可用', fmtBytes(s.avail) + ' (' + (100 - usedPct).toFixed(1) + '%)'],
+    ['已用', fmtBytes(s.used) + ' (' + usedPct + '%)'],
+  ];
 }
 
 /* ============ 启动 ============ */

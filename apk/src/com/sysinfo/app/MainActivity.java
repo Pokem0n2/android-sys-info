@@ -5,7 +5,12 @@ import android.app.ActivityManager;
 import android.content.Context;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.StatFs;
+import android.os.SystemClock;
 import android.provider.Settings;
+import android.util.DisplayMetrics;
+import android.view.Display;
+import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -106,6 +111,51 @@ public class MainActivity extends Activity {
                 o.put("avail", mi.availMem);       // 当前可用（字节）
                 o.put("threshold", mi.threshold);  // 系统判定「内存吃紧」的阈值
                 o.put("low", mi.lowMemory);        // 当前是否已吃紧
+            } catch (Exception ignored) {
+            }
+            return o.toString();
+        }
+
+        /** 显示：分辨率 / 密度 / 刷新率 / 物理尺寸估算（WindowManager + DisplayMetrics）。 */
+        @JavascriptInterface
+        public String getDisplayInfo() {
+            JSONObject o = new JSONObject();
+            try {
+                // getRealMetrics 反映整块面板的物理像素（不受状态栏/挖孔裁剪影响）
+                DisplayMetrics rm = new DisplayMetrics();
+                activity.getWindowManager().getDefaultDisplay().getRealMetrics(rm);
+                o.put("width", rm.widthPixels);
+                o.put("height", rm.heightPixels);
+                o.put("densityDpi", rm.densityDpi);
+                o.put("density", rm.density);
+                o.put("xdpi", rm.xdpi);
+                o.put("ydpi", rm.ydpi);
+                float refresh = activity.getWindowManager()
+                        .getDefaultDisplay().getRefreshRate();
+                o.put("refresh", refresh);
+                // 对角线物理尺寸：像素数 ÷ 面板报告的 xdpi/ydpi（部分面板报告值不准，仅供参考）
+                double inches = Math.sqrt(
+                        Math.pow(rm.widthPixels / (double) rm.xdpi, 2)
+                                + Math.pow(rm.heightPixels / (double) rm.ydpi, 2));
+                o.put("inches", Math.round(inches * 100) / 100.0);
+            } catch (Exception ignored) {
+            }
+            return o.toString();
+        }
+
+        /** 存储容量：数据分区的总容量 / 可用 / 已用（StatFs）。 */
+        @JavascriptInterface
+        public String getStorageStat() {
+            JSONObject o = new JSONObject();
+            try {
+                // 应用私有目录挂在数据分区上，对它取 StatFs 即得用户实际可用的主存储
+                File dataDir = activity.getFilesDir().getParentFile();
+                StatFs stat = new StatFs(dataDir.getAbsolutePath());
+                long total = stat.getTotalBytes();
+                long avail = stat.getAvailableBytes();
+                o.put("total", total);
+                o.put("avail", avail);
+                o.put("used", total - avail);
             } catch (Exception ignored) {
             }
             return o.toString();

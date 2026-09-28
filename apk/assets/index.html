@@ -49,6 +49,7 @@ const GROUPS = [
   { title: '闪存', fetch: fetchFlash },
   { title: '显示', fetch: fetchDisplay },
   { title: '存储', fetch: fetchStorageStat },
+  { title: '系统', fetch: fetchSystem },
 ];
 
 /** 字节数 → 人类可读（GB 用 10^9 近似、保留 1 位小数即可对上标称值） */
@@ -166,6 +167,36 @@ function fetchStorageStat() {
     ['总容量', fmtBytes(s.total)],
     ['可用', fmtBytes(s.avail) + ' (' + (100 - usedPct).toFixed(1) + '%)'],
     ['已用', fmtBytes(s.used) + ' (' + usedPct + '%)'],
+  ];
+}
+
+/** 毫秒 → X 天 X 小时 X 分（启动时长用） */
+function fmtUptime(ms) {
+  if (ms === null || ms === undefined || isNaN(ms)) return null;
+  const m = Math.floor(ms / 60000);
+  const days = Math.floor(m / 1440);
+  const hours = Math.floor((m % 1440) / 60);
+  const mins = m % 60;
+  let out = '';
+  if (days > 0) out += days + ' 天 ';
+  if (hours > 0 || days > 0) out += hours + ' 小时 ';
+  out += mins + ' 分钟';
+  return out;
+}
+
+function fetchSystem() {
+  if (noBridge()) return null;
+  const s = parseBridge(NativeInfo.getSystemInfo());
+  if (!s) return null;
+  return [
+    ['Android 版本', s.release + (s.codename && s.codename !== 'REL' ? ' (' + s.codename + ')' : '')],
+    ['API 等级', s.sdk],
+    ['安全补丁', s.securityPatch],
+    ['内核版本', s.kernel],
+    ['构建指纹', s.fingerprint],
+    ['构建标签', s.tags],
+    ['构建时间', s.buildTime ? new Date(s.buildTime).toLocaleString() : null],
+    ['已开机', fmtUptime(s.bootUptime)],
   ];
 }
 

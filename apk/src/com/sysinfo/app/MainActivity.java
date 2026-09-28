@@ -161,6 +161,30 @@ public class MainActivity extends Activity {
             return o.toString();
         }
 
+        /** 系统：Android 版本 / API 等级 / 安全补丁 / 内核版本 / 构建指纹 / 启动时长。 */
+        @JavascriptInterface
+        public String getSystemInfo() {
+            JSONObject o = new JSONObject();
+            try {
+                o.put("release", Build.VERSION.RELEASE);          // 13 / 14 / 15
+                o.put("sdk", Build.VERSION.SDK_INT);              // API 等级（精确整数）
+                o.put("codename", Build.VERSION.CODENAME);        // REL = 正式版
+                o.put("incremental", Build.VERSION.INCREMENTAL);
+                if (Build.VERSION.SDK_INT >= 23) {
+                    o.put("securityPatch", Build.VERSION.SECURITY_PATCH);
+                }
+                // 内核版本：System.getProperty("os.version") 即 uname -r
+                o.put("kernel", System.getProperty("os.version"));
+                o.put("fingerprint", Build.FINGERPRINT);          // 品牌/设备/构建唯一指纹
+                o.put("host", Build.HOST);                        // 构建机主机名
+                o.put("tags", Build.TAGS);                        // release-keys / test-keys
+                o.put("bootUptime", SystemClock.elapsedRealtime()); // 本次开机以来的毫秒数
+                o.put("buildTime", Build.TIME);                   // epoch 毫秒
+            } catch (Exception ignored) {
+            }
+            return o.toString();
+        }
+
         /** 闪存类型探测：优先 UFS（sysfs ufshc 目录），退回 eMMC（mmcblk，含厂商解码）。 */
         @JavascriptInterface
         public String getStorageInfo() {

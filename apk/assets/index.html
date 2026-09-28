@@ -43,6 +43,8 @@
   .row:last-child{border-bottom:none}
   .row .k{color:var(--dim);flex:none}
   .row .v{font-family:var(--mono);text-align:right;word-break:break-all}
+  /* 长值允许按段换行（指纹/GPU API/WebView 版本等），每段独占一行右对齐 */
+  .v.multiline{white-space:pre-line;word-break:normal}
   .v.na{color:var(--dim);opacity:.6}
   .copied{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
   .loading{padding:10px 0;color:var(--dim);font-size:13px}
@@ -113,11 +115,18 @@ function renderGroup(title, rows) {
         ve.textContent = '不可用';
         ve.className += ' na';
       } else {
-        ve.textContent = v;
-        // 单值点击即复制该值
+        // 数组值 = 显式多行（各取数函数已按规则拆好段）
+        if (Array.isArray(v)) {
+          ve.classList.add('multiline');
+          ve.textContent = v.join('\n');
+        } else {
+          ve.textContent = v;
+        }
+        // 单值点击即复制该值（多行值复制原始拼接文本）
+        const raw = Array.isArray(v) ? v.join('\n') : String(v);
         ve.addEventListener('click', (ev) => {
           ev.stopPropagation();
-          copyText(String(v), ve);
+          copyText(raw, ve);
         });
       }
       r.appendChild(ke); r.appendChild(ve);
@@ -186,7 +195,8 @@ function buildReportText() {
     lines.push('【' + title + '】');
     if (rows) {
       for (const [k, v] of rows) {
-        lines.push(k + '：' + (v === null || v === undefined || v === '' ? '不可用' : v));
+        const val = Array.isArray(v) ? v.join(' ') : v;
+        lines.push(k + '：' + (val === null || val === undefined || val === '' ? '不可用' : val));
       }
     } else {
       lines.push('读取失败');
@@ -223,6 +233,57 @@ function fmtUptime(ms) {
 function fmtKHz(k) {
   if (k === null || k === undefined || k < 0 || isNaN(k)) return null;
   return (k / 1e6).toFixed(2) + ' GHz';
+}
+
+/** 把 "/" 分隔的长串（构建指纹）按显示宽度拆行：
+ *  逐段累加，若当前行加上 "/下一段" 会超出可用宽度，则下一段另起一行。
+ *  拆行仅在 "/" 边界发生，段本身不再折断。 */
+function wrapBySlash(value, maxChars) {
+  if (!value) return null;
+  if (value.length <= maxChars) return value;
+  const segs = String(value).split('/');
+  const lines = [];
+  let cur = segs[0];
+  for (let i = 1; i < segs.length; i++) {
+    const next = segs[i];
+    if ((cur + '/' + next).length <= maxChars) {
+      cur = cur + '/' + next;
+    } else {
+      lines.push(cur);
+      cur = next;
+    }
+  }
+  lines.push(cur);
+  return lines.length > 1 ? lines : value;
+}
+
+/** GPU 图形 API 字符串："OpenGL ES 3.2 …(GIT@…)(Date: …)" →
+ *  主版本行 + 每个 "(...)" 段独占一行（去括号）。 */
+function splitGpuVersion(v) {
+  if (!v) return null;
+  const s = String(v);
+  // 取出所有 (…) 段
+  const parts = s.split(/(\([^)]*\))/).filter(p => p.trim() !== '');
+  if (parts.length <= 1) return s.length > 44 ? wrapBySlash(s, 44) : s;
+  const lines = [];
+  for (const p of parts) {
+    const t = p.trim();
+    if (t.startsWith('(') && t.endsWith(')')) {
+      lines.push(t.slice(1, -1).trim());
+    } else if (t) {
+      lines.push(t);
+    }
+  }
+  return lines;
+}
+
+/** WebView 信息 "包名 版本号" → 两行（版本号另起一行）。 */
+function splitWebView(v) {
+  if (!v) return null;
+  const s = String(v).trim();
+  const sp = s.lastIndexOf(' ');
+  if (sp <= 0) return s;
+  return [s.slice(0, sp), s.slice(sp + 1)];
 }
 
 /* ============ 数据组 ============ */
@@ -302,7 +363,7 @@ function fetchSystem() {
     ['API 等级', s.sdk],
     ['安全补丁', s.securityPatch],
     ['内核版本', s.kernel],
-    ['构建指纹', s.fingerprint],
+    ['构建指纹', wrapBySlash(s.fingerprint, 30)],
     ['构建标签', s.tags],
     ['构建时间', s.buildTime ? new Date(s.buildTime).toLocaleString() : null],
     ['已开机', fmtUptime(s.bootUptime)],
@@ -333,7 +394,7 @@ function fetchGpu() {
   if (!g) return null;
   return [
     ['渲染器', g.renderer],
-    ['图形 API', g.version],
+    ['图形 API', splitGpuVersion(g.version)],
   ];
 }
 
@@ -369,7 +430,7 @@ function fetchMisc() {
   if (m.gyro) rows.push(['陀螺仪', m.gyro]);
   if (m.mag) rows.push(['磁力计', m.mag]);
   if (m.light) rows.push(['光线感应', m.light]);
-  rows.push(['WebView', m.webview]);
+  rows.push(['WebView', splitWebView(m.webview)]);
   rows.push(['语言', m.locale]);
   rows.push(['时区', m.timezone]);
   return rows;

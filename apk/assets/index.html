@@ -318,6 +318,10 @@ function fetchFlash() {
   const s = parseBridge(NativeInfo.getStorageInfo());
   if (!s) return null;
   const rows = [['闪存类型', s.type || null]];
+  if (s.detail) {
+    // detail 可能是启动设备路径（长）或块设备名（短），长则两行
+    rows.push(['判定依据', wrapBySlash(s.detail, 30)]);
+  }
   if (s.type === 'UFS') {
     if (s.desc) rows.push(['描述符', s.desc]);
     if (s.sub) rows.push(['厂商字符串', s.sub]);

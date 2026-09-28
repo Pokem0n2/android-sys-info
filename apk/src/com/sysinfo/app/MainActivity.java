@@ -500,21 +500,107 @@ public class MainActivity extends Activity {
             }
         }
 
-        /** 闪存类型探测：优先 UFS（sysfs ufshc 目录），退回 eMMC（mmcblk，含厂商解码）。 */
+        /** 闪存类型探测（v0.8.0 三级回退，全部无权限可读）：
+         *  ① ro.boot.boot_devices 系统属性：内核命令行传入的存储控制器设备路径，
+         *     含 "ufshc" → UFS，含 "mmc" → eMMC（Android 8+ 普遍可读）
+         *  ② /proc/partitions 块设备名：mmcblk* → eMMC，sd* → UFS(通用闪存层)，
+         *     nvme* → NVMe，(nullptr 之外的读者视角等价于 ls /sys/block)
+         *  ③ sysfs 直读细项（老 ROM 才可读，兼拿厂商/型号）
+         *  SELinux 限制普通 app 读 /sys/block 与 /sys/class/ufshc，故前两级
+         *  是 Android 8+ 真正走得通的路径。 */
         @JavascriptInterface
         public String getStorageInfo() {
             JSONObject o = new JSONObject();
             try {
-                detectUfs(o);
-                if (o.length() == 0) {
-                    detectEmmc(o);
-                }
+                detectFlashByBootProp(o);
+                if (o.length() == 0) detectFlashByPartitions(o);
+                if (o.length() == 0) detectUfs(o);
+                if (o.length() == 0) detectEmmc(o);
             } catch (Exception ignored) {
             }
             return o.toString();
         }
 
-        /** UFS：内核把主控信息放在 /sys/class/ufshc/ 下（每控制器一目录），
+        /** ① 解析 ro.boot.boot_devices / ro.boot.bootdevice 属性值。 */
+        private void detectFlashByBootProp(JSONObject o) throws Exception {
+            String[] props = { "ro.boot.boot_devices", "ro.boot.bootdevice" };
+            for (String p : props) {
+                String v = getSystemProp(p);
+                if (v == null || v.isEmpty()) continue;
+                o.put("source", p);
+                if (v.contains("ufshc")) {
+                    o.put("type", "UFS");
+                } else if (v.contains("mmc")) {
+                    o.put("type", "eMMC");
+                } else if (v.contains("nvme")) {
+                    o.put("type", "NVMe");
+                }
+                o.put("detail", v);
+                return;
+            }
+        }
+
+        /** ② /proc/partitions 主块设备名判型（system_server 自 8 起仍可读）。 */
+        private void detectFlashByPartitions(JSONObject o) throws Exception {
+            String content = readFileBlock("/proc/partitions");
+            if (content == null) return;
+            o.put("source", "/proc/partitions");
+            java.util.regex.Matcher m = java.util.regex.Pattern
+                    .compile("^\\s*\\d+\\s+\\d+\\s+(\\d+)\\s+(\\S+)$",
+                             java.util.regex.Pattern.MULTILINE)
+                    .matcher(content);
+            while (m.find()) {
+                String name = m.group(2);
+                // 只看整盘设备（无分区号后缀）
+                if (name.matches("mmcblk\\d+")) {
+                    o.put("type", "eMMC");
+                    o.put("detail", name);
+                    return;
+                }
+                if (name.equals("sda") || name.equals("sdb")) {
+                    o.put("type", "UFS");
+                    o.put("detail", name);
+                    return;
+                }
+                if (name.startsWith("nvme0n")) {
+                    o.put("type", "NVMe");
+                    o.put("detail", name);
+                    return;
+                }
+            }
+        }
+
+        /** SystemProperties 反射读取（隐藏 API，无需权限）。 */
+        private static String getSystemProp(String key) {
+            try {
+                Class<?> sp = Class.forName("android.os.SystemProperties");
+                return (String) sp.getMethod("get", String.class).invoke(null, key);
+            } catch (Exception e) {
+                return null;
+            }
+        }
+
+        /** 读多行文件（/proc 用），失败返回 null。 */
+        private static String readFileBlock(String path) {
+            BufferedReader br = null;
+            StringBuilder sb = new StringBuilder();
+            try {
+                br = new BufferedReader(new FileReader(path));
+                char[] buf = new char[4096];
+                int n;
+                while ((n = br.read(buf)) > 0) {
+                    sb.append(buf, 0, n);
+                    if (sb.length() > 65536) break;
+                }
+                return sb.toString();
+            } catch (Exception e) {
+                return null;
+            } finally {
+                if (br != null) try { br.close(); } catch (Exception ignored) {}
+            }
+        }
+
+        /** UFS：老 ROM 可直读 sysfs ufshc 目录拿细项（新 ROM 被 SELinux 拦，留作三级）。
          *  路径随版本有差异，逐个候选目录探测；目录名以 ufshc 开头即认定。
          *  读不到细项也至少给出类型。 */
         private void detectUfs(JSONObject o) throws Exception {
